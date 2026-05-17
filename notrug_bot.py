@@ -17,6 +17,8 @@ POINTS = {
     "tweet_like": 25,
     "telegram_join": 20,
     "tweet_retweet": 15,
+    "tweet_comment": 15,
+    "new_tweet_comment": 10,
     "daily_message": 10,
     "referral": 10,
 }
@@ -39,8 +41,14 @@ def init_db():
         referred_by INTEGER,
         last_daily TEXT,
         daily_count INTEGER DEFAULT 0,
-        created_at TEXT
+        created_at TEXT,
+        tweet_comment_done INTEGER DEFAULT 0
     )""")
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN tweet_comment_done INTEGER DEFAULT 0")
+        conn.commit()
+    except:
+        pass
     conn.commit()
     conn.close()
 
@@ -262,6 +270,28 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=task_keyboard(user)
             )
 
+    elif query.data == "task_comment":
+        update_user(tid, step="pinned_comment_link")
+        await query.edit_message_text(
+            "💬 Comment on our Pinned Tweet\n\n"
+            "1. Go to: " + PINNED_TWEET + "\n"
+            "2. Leave a comment\n"
+            "3. Send the tweet link here\n\n"
+            "Send the tweet link:"
+        )
+
+    elif query.data == "task_new_comment":
+        update_user(tid, step="new_comment_link")
+        await query.edit_message_text(
+            "🗨️ Comment on a New Tweet\n\n"
+            "1. Go to @NOTRUGfun on X\n"
+            "2. Comment on any tweet\n"
+            "3. Send the tweet link here\n\n"
+            "Note: Each new tweet link = +10pts\n"
+            "Same link cannot be used twice!\n\n"
+            "Send the tweet link:"
+        )
+
     elif query.data == "task_ref":
         ref_link = "https://t.me/NOTRUGairdrop_bot?start=" + gen_ref(tid)
         await query.edit_message_text(
@@ -377,6 +407,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "Complete more tasks:",
                 reply_markup=task_keyboard(user)
             )
+        else:
+            await update.message.reply_text("Please send a valid tweet link (x.com or twitter.com)")
+        return
+
+    if step == "pinned_comment_link":
+        if "x.com" in text or "twitter.com" in text:
+            update_user(tid, tweet_comment_done=1, step="start")
+            add_points(tid, POINTS["tweet_comment"])
+            user = get_user(tid)
+            await update.message.reply_text(
+                "Pinned tweet comment verified! +15 points\n\n"
+                "Your points: " + str(user[7]) + "/100\n\n"
+                "Complete more tasks:",
+                reply_markup=task_keyboard(user)
+            )
+        else:
+            await update.message.reply_text("Please send a valid tweet link (x.com or twitter.com)")
+        return
+
+    if step == "new_comment_link":
+        if "x.com" in text or "twitter.com" in text:
+            # Check if link already used
+            conn = __import__('sqlite3').connect("airdrop.db")
+            c = conn.cursor()
+            try:
+                c.execute("CREATE TABLE IF NOT EXISTS tweet_comments (telegram_id INTEGER, tweet_url TEXT, UNIQUE(tweet_url))")
+                c.execute("INSERT INTO tweet_comments (telegram_id, tweet_url) VALUES (?,?)", (tid, text))
+                conn.commit()
+                conn.close()
+                update_user(tid, step="start")
+                add_points(tid, POINTS["new_tweet_comment"])
+                user = get_user(tid)
+                await update.message.reply_text(
+                    "Tweet comment verified! +10 points\n\n"
+                    "Your points: " + str(user[7]) + "\n\n"
+                    "Comment on more tweets for more points!",
+                    reply_markup=task_keyboard(user)
+                )
+            except:
+                conn.close()
+                update_user(tid, step="start")
+                await update.message.reply_text(
+                    "This tweet link was already submitted!\n\n"
+                    "Comment on a different tweet for +10 points.",
+                    reply_markup=task_keyboard(user)
+                )
         else:
             await update.message.reply_text("Please send a valid tweet link (x.com or twitter.com)")
         return
